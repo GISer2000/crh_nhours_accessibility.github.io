@@ -1,13 +1,12 @@
-const CONFIG = {
-  DATA_BASE: "data",
-  CITY_GEOJSON: "data/city.geojson",
-  REACHABILITY: "data/reachability.json",
-  TEN_LINES: "data/ten_lines.geojson",
-  MAX_HOURS: 8,
-  DEFAULT_HOUR: 5,
-};
+// 保留你原本的路径定义
+const DATA_BASE = "data";
+const CITY_GEOJSON = `${DATA_BASE}/city.geojson`;
+const REACHABILITY = `${DATA_BASE}/reachability.json`;
+const TEN_LINES = `${DATA_BASE}/ten_lines.geojson`;
 
-// 状态控制
+const MAX_HOURS = 8;
+const DEFAULT_HOUR = 5;
+
 let chart = null;
 let reachabilityData = {};
 let tenLineCoords = [];
@@ -15,18 +14,18 @@ let allCityNames = [];
 
 // ---------- 初始化 ----------
 async function init() {
-  showLoading(true, "正在初始化地图与铁路网络...");
+  showLoading(true, "正在加载地图与可达性数据...");
 
   try {
     const [geoJson, reach, tenLines] = await Promise.all([
-      fetchJSON(CONFIG.CITY_GEOJSON),
-      fetchJSON(CONFIG.REACHABILITY),
-      fetchJSON(CONFIG.TEN_LINES),
+      fetchJSON(CITY_GEOJSON),
+      fetchJSON(REACHABILITY),
+      fetchJSON(TEN_LINES),
     ]);
 
     reachabilityData = reach;
 
-    // 预处理 GeoJSON
+    // 城市名映射补充
     geoJson.features.forEach((f) => {
       if (f.properties) {
         f.properties.name = f.properties.city_name || f.properties.name;
@@ -35,34 +34,32 @@ async function init() {
 
     echarts.registerMap("china-cities", geoJson);
 
-    // 提取线路坐标
+    // ten_lines 几何转坐标数组
     tenLineCoords = geojsonToLineCoords(tenLines);
 
-    // 提取所有城市名列表（去重 + 拼音排序）
+    // 城市列表提取与拼音排序
     allCityNames = Object.keys(reachabilityData).sort((a, b) =>
       a.localeCompare(b, "zh-Hans-CN")
     );
 
-    // 初始化下拉框选项
     populateCitySelect(allCityNames);
-    populateHourSelect(CONFIG.MAX_HOURS, CONFIG.DEFAULT_HOUR);
+    populateHourSelect(MAX_HOURS, DEFAULT_HOUR);
+    setupCitySearch();
 
-    // 建立事件监听
-    setupEventListeners();
+    document.getElementById("city-select").addEventListener("change", render);
+    document.getElementById("hour-select").addEventListener("change", render);
 
-    // 初始化 ECharts
     chart = echarts.init(document.getElementById("chart"));
-    
-    // 渲染地图
     render();
 
     // 响应式 Resize 防抖
-    const resizeObserver = new ResizeObserver(debounce(() => chart?.resize(), 100));
-    resizeObserver.observe(document.getElementById("chart"));
-
+    window.addEventListener(
+      "resize",
+      debounce(() => chart?.resize(), 150)
+    );
   } catch (err) {
-    console.error("初始化错误:", err);
-    setStatus("数据加载失败，请刷新重试：" + err.message, true);
+    console.error("加载失败:", err);
+    setStatus("数据加载失败：" + err.message, true);
   } finally {
     showLoading(false);
   }
@@ -71,23 +68,21 @@ async function init() {
 // ---------- 工具函数 ----------
 async function fetchJSON(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP Error ${res.status}: ${url}`);
+  if (!res.ok) throw new Error(`${url} 加载失败 (HTTP ${res.status})`);
   return res.json();
 }
 
 function geojsonToLineCoords(geojson) {
   const lines = [];
-  if (!geojson || !geojson.features) return lines;
-
-  for (const f of geojson.features) {
+  (geojson.features || []).forEach((f) => {
     const geom = f.geometry;
-    if (!geom) continue;
+    if (!geom) return;
     if (geom.type === "LineString") {
       lines.push(geom.coordinates);
     } else if (geom.type === "MultiLineString") {
       lines.push(...geom.coordinates);
     }
-  }
+  });
   return lines;
 }
 
@@ -98,11 +93,11 @@ function populateCitySelect(cities) {
     .join("");
 }
 
-function populateHourSelect(max, defaultHour) {
+function populateHourSelect(max, defaultVal) {
   const sel = document.getElementById("hour-select");
   let html = "";
   for (let h = 1; h <= max; h++) {
-    html += `<option value="${h}" ${h === defaultHour ? "selected" : ""}>${h} 小时</option>`;
+    html += `<option value="${h}" ${h === defaultVal ? "selected" : ""}>${h} 小时</option>`;
   }
   sel.innerHTML = html;
 }
@@ -112,32 +107,26 @@ function setStatus(text, isError = false) {
   if (el) {
     el.textContent = text;
     el.style.color = isError ? "#ef4444" : "#1e293b";
-    el.style.borderColor = isError ? "#fca5a5" : "#e2e8f0";
   }
 }
 
-function showLoading(show, text = "加载中...") {
+function showLoading(show, text = "") {
   const overlay = document.getElementById("loading-overlay");
   const textEl = document.getElementById("loading-text");
   if (!overlay) return;
-
   if (textEl) textEl.textContent = text;
-  if (show) {
-    overlay.classList.remove("fade-out");
-  } else {
-    overlay.classList.add("fade-out");
-  }
+  overlay.style.display = show ? "flex" : "none";
 }
 
-function debounce(func, wait) {
-  let timeout;
+function debounce(fn, delay) {
+  let timer = null;
   return function (...args) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
   };
 }
 
-// ---------- 构造数据 ----------
+// ---------- 构造可达城市数据 ----------
 function buildReachableData(originCity, maxHour) {
   const reach = reachabilityData[originCity] || {};
   const data = [];
@@ -161,8 +150,11 @@ function render() {
 
   if (!originCity) return;
 
-  const { data: reachableData, reachableCount } = buildReachableData(originCity, maxHour);
-  setStatus(`📍 ${originCity} 出发 · ${maxHour}h 内直达 ${reachableCount} 个城市`);
+  const { data: reachableData, reachableCount } = buildReachableData(
+    originCity,
+    maxHour
+  );
+  setStatus(`📍 ${originCity} 出发 · ${maxHour} 小时内可达 ${reachableCount} 个城市`);
 
   const option = {
     backgroundColor: "transparent",
@@ -170,26 +162,22 @@ function render() {
     tooltip: {
       trigger: "item",
       padding: [8, 12],
-      backgroundColor: "rgba(15, 23, 42, 0.85)",
+      backgroundColor: "rgba(15, 23, 42, 0.88)",
       borderColor: "transparent",
       textStyle: { color: "#ffffff", fontSize: 13 },
       extraCssText: "backdrop-filter: blur(4px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); border-radius: 6px;",
       formatter: (p) => {
-        if (p.seriesName === "十纵十横网络") return "";
-        if (p.name === originCity) {
-          return `<strong style="color: #fbbf24;">📍 出发地：${p.name}</strong>`;
-        }
-        if (p.value == null || isNaN(p.value)) {
-          return `<span style="color: #94a3b8;">${p.name} (不可达 / 超出限时)</span>`;
-        }
-        return `<strong>${p.name}</strong><br/>⏱ 预计耗时：<span style="color: #60a5fa; font-weight: bold;">${p.value}</span> 小时`;
+        if (p.seriesName === "ten_lines") return "";
+        if (p.name === originCity) return `<strong style="color: #fbbf24;">📍 起点城市：${p.name}</strong>`;
+        if (p.value == null || isNaN(p.value)) return `<span style="color: #94a3b8;">${p.name} (不可达 / 超时)</span>`;
+        return `<strong>${p.name}</strong><br/>⏱ 约 <span style="color: #60a5fa; font-weight: bold;">${p.value}</span> 小时`;
       },
     },
 
     geo: {
       map: "china-cities",
       roam: true,
-      zoom: 1.25,
+      zoom: 1.2,
       label: { show: false },
       itemStyle: {
         areaColor: "#f1f5f9",
@@ -200,13 +188,12 @@ function render() {
         label: { show: true, color: "#0f172a", fontSize: 11, fontWeight: "bold" },
         itemStyle: { areaColor: "#e2e8f0" },
       },
-      // 高亮起点城市
       regions: [
         {
           name: originCity,
           itemStyle: {
             areaColor: "#f59e0b",
-            borderColor: "#b45309",
+            borderColor: "#ffffff",
             borderWidth: 1.5,
           },
           emphasis: {
@@ -225,23 +212,12 @@ function render() {
       seriesIndex: [0],
       left: 28,
       bottom: 32,
-      text: ["长时间", "短时间"],
+      text: ["远", "近"],
       calculable: true,
-      orient: "vertical",
       inRange: {
-        // 由近及远更符合心理预期的颜色序列（暖红/橙 -> 深蓝）
-        color: [
-          "#3b82f6",
-          "#60a5fa",
-          "#93c5fd",
-          "#bfdbfe",
-          "#e0f2fe"
-        ],
+        color: ["#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#e0f2fe"],
       },
-      textStyle: {
-        color: "#64748b",
-        fontSize: 12,
-      },
+      textStyle: { color: "#64748b", fontSize: 12 },
     },
 
     series: [
@@ -253,7 +229,7 @@ function render() {
         data: reachableData,
       },
       {
-        name: "十纵十横网络",
+        name: "ten_lines",
         type: "lines",
         coordinateSystem: "geo",
         polyline: true,
@@ -272,14 +248,7 @@ function render() {
   chart.setOption(option, true);
 }
 
-// ---------- 事件监听与搜索 ----------
-function setupEventListeners() {
-  document.getElementById("city-select").addEventListener("change", render);
-  document.getElementById("hour-select").addEventListener("change", render);
-
-  setupCitySearch();
-}
-
+// ---------- 城市搜索 ----------
 function setupCitySearch() {
   const select = document.getElementById("city-select");
   const btn = document.getElementById("city-search-btn");
@@ -330,7 +299,7 @@ function setupCitySearch() {
 
 function renderSearchResults(query, container) {
   const q = query.trim().toLowerCase();
-  let matched = [];
+  let matched;
 
   if (!q) {
     matched = allCityNames.slice(0, 6);
@@ -338,9 +307,7 @@ function renderSearchResults(query, container) {
     matched = allCityNames.filter((name) => {
       const lower = name.toLowerCase();
       if (lower.includes(q)) return true;
-      
-      // 拼音首字母简易匹配机制
-      const py = getSimplePinyinInitial(name);
+      const py = getPinyinInitials(name);
       return py.toLowerCase().includes(q);
     });
   }
@@ -351,28 +318,21 @@ function renderSearchResults(query, container) {
   }
 
   container.innerHTML = matched
-    .map((name) => {
-      const py = getSimplePinyinInitial(name);
-      return `<li data-city="${name}"><span>${name}</span><span class="py">${py}</span></li>`;
-    })
+    .map(
+      (name) =>
+        `<li data-city="${name}"><span>${name}</span><span class="py">${getPinyinInitials(name)}</span></li>`
+    )
     .join("");
 }
 
-// 更加轻量健壮的常见汉字拼音首字母提取（支持常见地名补全）
-function getSimplePinyinInitial(str) {
-  const customMap = {
-    '北京':'BJ','上海':'SH','重庆':'CQ','天津':'TJ','广州':'GZ','深圳':'SZ','成都':'CD',
-    '杭州':'HZ','武汉':'WH','西安':'XA','南京':'NJ','郑州':'ZZ','长沙':'CS','沈阳':'SY',
-    '青岛':'QD','福州':'FZ','厦门':'XM','昆明':'KM','合肥':'HF','哈尔滨':'HRB','长春':'CC'
+// 拼音简易映射
+function getPinyinInitials(str) {
+  const map = {
+    北京: "BJ", 上海: "SH", 重庆: "CQ", 天津: "TJ", 广州: "GZ", 深圳: "SZ",
+    成都: "CD", 杭州: "HZ", 武汉: "WH", 西安: "XA", 南京: "NJ", 郑州: "ZZ",
+    长沙: "CS", 沈阳: "SY", 青岛: "QD", 福州: "FZ", 厦门: "XM", 昆明: "KM"
   };
-  
-  if (customMap[str]) return customMap[str];
-
-  // 兜底返回字符串简写
-  return str.split('').map(ch => {
-    return ch.localeCompare('a') >= 0 ? ch.toUpperCase() : ch;
-  }).join('');
+  return map[str] || "";
 }
 
-// 启动应用
-document.addEventListener("DOMContentLoaded", init);
+init();

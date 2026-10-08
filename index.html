@@ -3,62 +3,54 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>全国动车时空可达性地图</title>
-  <link rel="stylesheet" href="style.css">
+  <title>全国动车可达性地图</title>
+  <link rel="stylesheet" href="css/style.css">
   <!-- ECharts CDN -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
+  <!-- 加载遮罩 -->
   <div id="loading-overlay" class="loading-overlay">
     <div class="spinner"></div>
     <div id="loading-text" class="loading-text">数据加载中...</div>
   </div>
 
-  <header class="app-header">
+  <header class="toolbar">
     <div class="brand">
       <span class="icon">🚄</span>
-      <h1>全国动车时空可达性</h1>
+      <h1>动车可达城市</h1>
     </div>
 
-    <div class="controls-bar">
-      <!-- 城市选择 -->
+    <div class="controls">
       <div class="control-group">
         <label for="city-select">出发城市</label>
-        <div class="select-search-wrapper">
-          <select id="city-select" class="custom-select"></select>
-          <button type="button" id="city-search-btn" class="icon-btn" title="快速搜索城市">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          </button>
+        <div class="select-wrapper">
+          <select id="city-select"></select>
+          <button type="button" id="city-search-btn" title="搜索城市">🔍</button>
           
           <div id="city-search-panel" class="search-panel hidden">
             <input
               id="city-search-input"
               type="text"
-              placeholder="输入城市或拼音首字母..."
+              placeholder="输入城市名或首字母"
               autocomplete="off"
             />
-            <ul id="city-search-results" class="results-list"></ul>
+            <ul id="city-search-results"></ul>
           </div>
         </div>
       </div>
 
-      <!-- 时间选择 -->
       <div class="control-group">
-        <label for="hour-select">最大耗时</label>
-        <div class="select-wrapper">
-          <select id="hour-select" class="custom-select"></select>
-        </div>
+        <label for="hour-select">最大时间</label>
+        <select id="hour-select"></select>
       </div>
 
-      <!-- 统计指标 -->
-      <div id="status" class="status-badge">准备就绪</div>
+      <span id="status" class="status"></span>
     </div>
   </header>
 
-  <main class="main-content">
-    <div id="chart" class="chart-container"></div>
-  </main>
+  <main id="chart" class="chart"></main>
 
-  <script src="main.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
