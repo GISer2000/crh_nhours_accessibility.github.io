@@ -1,6 +1,6 @@
 // 保留你原本的路径定义
 const DATA_BASE = "data";
-const CITY_GEOJSON = `${DATA_BASE}/city1.geojson`;
+const CITY_GEOJSON = `${DATA_BASE}/city.geojson`;
 const REACHABILITY = `${DATA_BASE}/reachability.json`;
 const TEN_LINES = `${DATA_BASE}/ten_lines.geojson`;
 
